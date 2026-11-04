@@ -131,12 +131,17 @@ async function loadPemegang() {
 }
 
 function normalize(d) {
+  const pbv = n(d.pbv);
+  const equity = n(d.equity);
+  // Never trust a stored category/discount when PBV is available: both values
+  // are derived metrics and must remain consistent with the displayed ratio.
+  const disc = pbv != null && pbv > 0 ? 1 - pbv : null;
   return {
     code: d.code, name: d.name, sector: d.sector, date: d.date,
     price: n(d.price), shares: n(d.shares), mcap: n(d.mcap),
     assets: n(d.assets), liab: n(d.liab), equity: n(d.equity),
-    bvps: n(d.bvps), pbv: n(d.pbv), disc: n(d.disc),
-    kategori: d.kategori, laba: n(d.laba), eps: n(d.eps),
+    bvps: n(d.bvps), pbv, disc,
+    kategori: valuationCategory(pbv, equity, d.kategori), laba: n(d.laba), eps: n(d.eps),
     graham: n(d.graham), klas: d.klas, fairValue: n(d.fairValue),
     upside: n(d.upside), group: d.group_name || null,
     parent: d.parent_company || null,
@@ -147,6 +152,20 @@ function normalize(d) {
   };
 }
 function n(x) { return (x == null || isNaN(x)) ? null : Number(x); }
+function valuationCategory(pbv, equity, fallback = '') {
+  if (equity != null && equity <= 0) return 'Ekuitas negatif / N.M.';
+  if (pbv == null || pbv <= 0) return fallback || 'N.M.';
+  if (pbv < 0.5) return 'Diskon ekstrem';
+  if (pbv < 0.8) return 'Diskon';
+  if (pbv < 1.5) return 'Wajar relatif aset';
+  if (pbv < 3) return 'Mahal relatif aset';
+  return 'Mahal ekstrem';
+}
+function bookValueGapLabel(d) {
+  if (d.disc == null) return '-';
+  const pct = Math.abs(d.disc * 100).toFixed(2) + '%';
+  return d.disc >= 0 ? `Diskon ${pct}` : `Premium ${pct}`;
+}
 
 function populateSectors() {
   const sectors = [...new Set(DATA.map(d => d.sector).filter(Boolean))].sort();
@@ -352,7 +371,7 @@ async function showDetail(code) {
       <tr><td>Ekuitas (Rp miliar)</td><td>${fmt(d.equity,0)}</td></tr>
       <tr><td>BVPS (Rp)</td><td>${fmt(d.bvps,2)}</td></tr>
       <tr><td>PBV (x)</td><td>${fmt(d.pbv,2)}</td></tr>
-      <tr><td>Diskon vs BV (%)</td><td>${d.disc!=null?(d.disc*100).toFixed(2)+'%':'-'}</td></tr>
+      <tr><td>Posisi vs Nilai Buku</td><td>${bookValueGapLabel(d)}</td></tr>
       <tr><td>Kategori Valuasi</td><td>${d.kategori||'-'}</td></tr>
       <tr><td>Laba Bersih (Rp miliar)</td><td>${fmt(d.laba,0)}</td></tr>
       <tr><td>EPS (Rp)</td><td>${fmt(d.eps,2)}</td></tr>
@@ -444,7 +463,7 @@ function exportExcel() {
     'Tanggal Harga': d.date, 'Harga (Rp)': d.price, 'Jumlah Saham (miliar)': d.shares,
     'Market Cap (Rp miliar)': d.mcap, 'Total Aset (Rp miliar)': d.assets,
     'Total Liabilitas (Rp miliar)': d.liab, 'Ekuitas (Rp miliar)': d.equity,
-    'BVPS (Rp)': d.bvps, 'PBV (x)': d.pbv, 'Diskon vs BV (%)': d.disc,
+    'BVPS (Rp)': d.bvps, 'PBV (x)': d.pbv, 'Diskon vs BV (%)': d.disc != null ? d.disc * 100 : null,
     'Kategori Valuasi': d.kategori, 'Laba Bersih (Rp miliar)': d.laba,
     'EPS (Rp)': d.eps, 'Graham Number (Rp)': d.graham,
     'Klasifikasi': d.klas, 'Soliditas': d.soliditas,

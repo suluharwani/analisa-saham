@@ -108,14 +108,15 @@ try {
         ];
     }
 
-    // 7. Liquidation Value (simplified)
+    // 7. Liquidation Value (conservative asset haircut).  Using equity without
+    // a haircut merely duplicates NAV and is not a liquidation estimate.
     if ($shares > 0 && $ta > 0) {
-        $liq = (($ta - $tl) * 1e9) / $sharesAbs;
+        $liq = (($ta * 0.8 - $tl) * 1e9) / $sharesAbs;
         $methods['liquidation'] = [
             'name' => 'Liquidation Value',
-            'formula' => '(Total Aset - Total Liab) / Shares',
+            'formula' => '(80% × Total Aset - Total Liab) / Shares',
             'value' => round($liq, 2),
-            'description' => 'Nilai likuidasi sederhana = (Aset - Liabilitas) / Saham.'
+            'description' => 'Estimasi konservatif nilai likuidasi dengan haircut 20% pada aset.'
         ];
     }
 
@@ -181,14 +182,15 @@ try {
         ];
     }
 
-    // 13. DCF Simplified (perpetuity)
+    // 13. Earnings-capitalization proxy (perpetuity).  The same perpetual
+    // growth assumption must be used in the numerator and denominator.
     if ($eps > 0) {
-        $dcf = ($eps * (1 + $epsGrowth)) / ($requiredReturn - $gordonGrowth);
+        $dcf = ($eps * (1 + $gordonGrowth)) / ($requiredReturn - $gordonGrowth);
         $methods['dcf'] = [
-            'name' => 'DCF (Simplified Perpetuity)',
+            'name' => 'DCF Proxy (Perpetuity)',
             'formula' => 'EPS×(1+g) / (r - g)',
             'value' => round($dcf, 2),
-            'description' => 'DCF sederhana: EPS×(1+g)/(r-g). g=5%, r=10%, g_perpetuity=3%.'
+            'description' => 'Proxy kapitalisasi laba: EPS×(1+g)/(r-g). g=3%, r=10%. Bukan DCF berbasis free cash flow.'
         ];
     }
 

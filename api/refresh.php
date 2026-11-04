@@ -10,7 +10,10 @@ function fetchText($url) {
     $ctx = stream_context_create(['http'=>['timeout'=>20,'user_agent'=>'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0']]);
     $html = @file_get_contents($url, false, $ctx);
     if ($html === false) return null;
-    return strip_tags($html);
+    // Replacing tags with a space (rather than strip_tags) prevents adjacent
+    // values such as "Financials" and "Founded" from being concatenated.
+    $text = preg_replace('/<[^>]*>/', ' ', $html);
+    return preg_replace('/\s+/', ' ', html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
 }
 
 function parseNum($s) {
@@ -25,16 +28,32 @@ function parseNum($s) {
     return is_nan($v) ? null : $v * $mult;
 }
 
+function parsePrice($text) {
+    if (preg_match('/Currency is (?:IDR|USD)\s+([\d,.]+)/i', $text, $m)) {
+        return floatval(str_replace(',', '', $m[1]));
+    }
+    // Fallback for the compact quote block: price, daily change, percentage.
+    if (preg_match('/([\d,]+(?:\.\d{1,2})?)\s+[+-]?[\d,.]+\s*\(\s*[+-]?[\d.]+%\s*\)/', $text, $m)) {
+        return floatval(str_replace(',', '', $m[1]));
+    }
+    return null;
+}
+
+function parseBalanceSheetValue($text, $label) {
+    // StockAnalysis reports financial statements in millions. The first figure
+    // after each label is the TTM column.
+    if (preg_match('/' . preg_quote($label, '/') . '\s+(-?[\d,]+)/i', $text, $m)) {
+        return floatval(str_replace(',', '', $m[1]));
+    }
+    return null;
+}
+
 try {
     $overview = fetchText("https://stockanalysis.com/quote/idx/$code/");
     $bs = fetchText("https://stockanalysis.com/quote/idx/$code/financials/balance-sheet/");
     if (!$overview || !$bs) { http_response_code(502); echo json_encode(['error'=>'fetch failed']); exit; }
 
-    // price: number with decimals followed by change and percent
-    $price = null;
-    if (preg_match('/([\d,]+\.\d{1,2})\s+[+-]?[\d.,]+\s*\(\s*[+-]?[\d.]+%\s*\)/', $overview, $m)) {
-        $price = floatval(str_replace(',', '', $m[1]));
-    }
+    $price = parsePrice($overview);
     // shares out
     $shares = null;
     if (preg_match('/Shares Out\s*([\d.,]+[BMT]?)/i', $overview, $m)) {
@@ -43,7 +62,7 @@ try {
     }
     // sector
     $sector = null;
-    if (preg_match('/Sector\s*\n\s*([A-Za-z &-]+)\n/i', $overview, $m)) {
+    if (preg_match('/Sector\s+(.+?)\s+(?:Founded|Employees|Stock Exchange|Ticker Symbol)/i', $overview, $m)) {
         $sector = trim($m[1]);
     }
     // net income (ttm) in IDR (trillions -> number)
@@ -56,18 +75,30 @@ try {
     if (preg_match('/EPS\s+([\d.,]+)/i', $overview, $m)) {
         $eps = floatval(str_replace(',', '', $m[1]));
     }
-    // assets/liab: try to parse from raw HTML; fallback to existing DB values
+    // Balance-sheet values are reported in millions; this application stores
+    // IDR values in billions. Keep existing values only when a source row is
+    // temporarily unavailable, rather than overwriting them with null.
     $assets = null; $liab = null; $currency = 'IDR';
     // existing values from DB
     $estmt = $pdo->prepare("SELECT total_aset, total_liabilitas, currency FROM companies WHERE code=?");
     $estmt->execute([$code]);
     $existing = $estmt->fetch();
     if ($existing) {
-        $assets = $existing['total_aset'] !== null ? floatval($existing['total_aset']) / (($existing['currency']==='USD') ? (18060/1000) : (1/1000)) : null;
-        // store in millions reported? We'll convert back below; simpler: keep existing miliar values
         $assets = $existing['total_aset'];
         $liab = $existing['total_liabilitas'];
         $currency = $existing['currency'] ?: 'IDR';
+    }
+
+    if (preg_match('/Financials in millions\s+(IDR|USD)/i', $bs, $m)) {
+        $currency = strtoupper($m[1]);
+    }
+    $assetsRaw = parseBalanceSheetValue($bs, 'Total Assets');
+    $liabRaw = parseBalanceSheetValue($bs, 'Total Liabilities');
+    // A value outside this range is almost certainly an embedded application
+    // identifier, not a balance-sheet number. Never write it to the database.
+    if ($assetsRaw !== null && $liabRaw !== null && $assetsRaw > 0 && $liabRaw >= 0 && $assetsRaw < 1e12 && $liabRaw < 1e12) {
+        $assets = $assetsRaw / 1000;
+        $liab = $liabRaw / 1000;
     }
 
     // name from overview (first heading)
@@ -79,12 +110,13 @@ try {
     // market cap
     $mcap = ($price !== null && $shares !== null) ? $price * $shares : null;
 
-    // assets/liab already in miliar IDR (from DB); keep as-is
+    // Assets and liabilities are now in billions in the source currency.
     $assetsM = $assets;
     $liabM = $liab;
     $equity = ($assetsM !== null && $liabM !== null) ? $assetsM - $liabM : null;
-    $bvps = ($equity !== null && $shares) ? $equity / $shares : null;
-    $pbv = ($bvps && $bvps != 0 && $price) ? $price / $bvps : null;
+    $bvps = ($equity !== null && $shares > 0) ? $equity / $shares : null;
+    $pbv = ($bvps !== null && $bvps > 0 && $price !== null && $price > 0) ? $price / $bvps : null;
+    // Positive = discount to book value; negative = premium to book value.
     $disc = ($pbv !== null) ? 1 - $pbv : null;
     $niM = $netIncome !== null ? $netIncome / 1e9 : null; // to miliar
     $graham = ($eps !== null && $bvps !== null && $eps > 0 && $bvps > 0) ? sqrt(22.5 * $eps * $bvps) : null;
@@ -94,7 +126,7 @@ try {
     // kategori
     $kategori = '';
     if ($pbv !== null) {
-        if ($pbv < 0) $kategori = 'Ekuitas negatif / N.M.';
+        if ($equity !== null && $equity <= 0) $kategori = 'Ekuitas negatif / N.M.';
         elseif ($pbv < 0.5) $kategori = 'Diskon ekstrem';
         elseif ($pbv < 0.8) $kategori = 'Diskon';
         elseif ($pbv < 1.5) $kategori = 'Wajar relatif aset';
@@ -119,9 +151,9 @@ try {
     elseif ($graham !== null && $price !== null && $price <= $graham) $klas = 'Layak Beli';
 
     // update DB
-    $stmt = $pdo->prepare("UPDATE companies SET name=COALESCE(?,name), sector=COALESCE(?,sector), tanggal_harga=?, harga=?, jumlah_saham=?, market_cap=?, total_aset=?, total_liabilitas=?, ekuitas=?, bvps=?, pbv=?, diskon=?, kategori=?, laba_bersih=?, eps=?, graham_number=?, fair_value=?, upside=?, currency=?, soliditas=?, klasifikasi=? WHERE code=?");
+    $stmt = $pdo->prepare("UPDATE companies SET name=COALESCE(?,name), sector=COALESCE(?,sector), tanggal_harga=COALESCE(?,tanggal_harga), harga=COALESCE(?,harga), jumlah_saham=COALESCE(?,jumlah_saham), market_cap=COALESCE(?,market_cap), total_aset=COALESCE(?,total_aset), total_liabilitas=COALESCE(?,total_liabilitas), ekuitas=COALESCE(?,ekuitas), bvps=COALESCE(?,bvps), pbv=COALESCE(?,pbv), diskon=COALESCE(?,diskon), kategori=COALESCE(?,kategori), laba_bersih=COALESCE(?,laba_bersih), eps=COALESCE(?,eps), graham_number=COALESCE(?,graham_number), fair_value=COALESCE(?,fair_value), upside=COALESCE(?,upside), currency=COALESCE(?,currency), soliditas=?, klasifikasi=? WHERE code=?");
     $stmt->execute([
-        $name, $sector, '26/10/2026', $price, $shares, $mcap, $assetsM, $liabM, $equity, $bvps, $pbv, $disc, $kategori, $niM, $eps, $graham, $fairValue, $upside, $currency, $soliditas, $klas, $code
+        $name, $sector, $price !== null ? date('d/m/Y') : null, $price, $shares, $mcap, $assetsM, $liabM, $equity, $bvps, $pbv, $disc, $kategori, $niM, $eps, $graham, $fairValue, $upside, $currency, $soliditas, $klas, $code
     ]);
 
     // fetch updated row
