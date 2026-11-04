@@ -1,11 +1,4 @@
 <?php
-// Auto-create .env if missing (one-time setup, remove this block after .env exists)
-$envPath = __DIR__ . '/.env';
-if (!file_exists($envPath)) {
-    $envContent = "DB_HOST=153.92.15.11\nDB_NAME=u589050364_analisasaham\nDB_USER=u589050364_analisasaham\nDB_PASS=Suluh@112358\nDB_PORT=3306\nDB_CHARSET=utf8mb4\n";
-    @file_put_contents($envPath, $envContent);
-}
-
 // Load .env file
 $envFile = __DIR__ . '/.env';
 if (file_exists($envFile)) {
