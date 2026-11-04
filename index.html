@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Analisa Valuasi Emiten BEI</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <h1>Analisa Valuasi Emiten BEI</h1>
+    <p>Screening aset (PBV), Graham Number, Fair Value, Grup Korporasi, Pemegang Saham. Data real stockanalysis.com (Okt 2026). 913 emiten.</p>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="emiten">Emiten</button>
+  <button class="tab" data-tab="grup">Grup Korporasi</button>
+  <button class="tab" data-tab="pemegang">Pemegang Saham</button>
+  <button class="tab" data-tab="jenis">Jenis Saham</button>
+  <button class="tab" data-tab="ihsg">Valuasi Agregat</button>
+  <button class="tab" data-tab="valuasi">Perbandingan Valuasi</button>
+</nav>
+
+<section class="toolbar" id="toolbarEmiten">
+  <div class="toolbar-left">
+    <input type="text" id="search" placeholder="Cari kode / nama emiten...">
+    <select id="sectorFilter"><option value="">Semua Sektor</option></select>
+    <select id="groupFilter"><option value="">Semua Grup</option></select>
+    <select id="katFilter">
+      <option value="">Semua Kategori</option>
+      <option>Diskon ekstrem</option><option>Diskon</option>
+      <option>Wajar relatif aset</option><option>Mahal relatif aset</option>
+      <option>Mahal ekstrem</option><option>Ekuitas negatif / N.M.</option>
+    </select>
+    <select id="klasFilter">
+      <option value="">Semua Klasifikasi</option>
+      <option>Layak Beli</option><option>Netral</option><option>Tidak Layak</option>
+    </select>
+    <select id="solFilter">
+      <option value="">Semua Soliditas</option>
+      <option>Solid</option><option>Moderat</option><option>Rawan Gorengan</option>
+    </select>
+    <select id="sortBy">
+      <option value="pbv">PBV (rendah→tinggi)</option>
+      <option value="pbvDesc">PBV (tinggi→rendah)</option>
+      <option value="mcapDesc">Market Cap (besar→kecil)</option>
+      <option value="upsideDesc">Upside (tinggi→rendah)</option>
+      <option value="code">Kode A-Z</option>
+    </select>
+    <button id="resetBtn" class="btn secondary">Reset</button>
+  </div>
+  <div class="toolbar-right">
+    <button id="exportBtn" class="btn primary">⬇ Export Excel</button>
+    <button id="refreshBtn" class="btn secondary">↻ Refresh</button>
+  </div>
+</section>
+
+<section class="tab-content" id="tab-emiten">
+  <section class="summary" id="summary"></section>
+  <section class="charts">
+    <div class="chart-card"><canvas id="chartKat"></canvas></div>
+    <div class="chart-card"><canvas id="chartSector"></canvas></div>
+    <div class="chart-card news-card">
+      <h3>Hot News Saham</h3>
+      <div id="newsList" class="news-list"><p>Memuat berita...</p></div>
+    </div>
+  </section>
+  <section class="table-wrap">
+    <div class="table-info"><span id="countInfo"></span></div>
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th data-sort="code">Kode</th><th data-sort="name">Nama</th><th data-sort="sector">Sektor</th>
+          <th data-sort="price" class="num">Harga</th><th data-sort="pbv" class="num">PBV</th>
+          <th data-sort="kategori">Kategori</th><th data-sort="klas">Klasifikasi</th>
+          <th data-sort="soliditas">Soliditas</th>
+          <th data-sort="graham" class="num">Graham</th><th data-sort="fairValue" class="num">Fair Value</th>
+          <th data-sort="upside" class="num">Upside %</th><th data-sort="equity" class="num">Ekuitas</th>
+          <th data-sort="laba" class="num">Laba</th><th data-sort="group">Grup</th><th>Chart</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div class="pagination" id="pagination"></div>
+  </section>
+</section>
+
+<section class="tab-content hidden" id="tab-grup">
+  <div class="table-wrap" id="grupWrap"><p>Memuat grup...</p></div>
+</section>
+
+<section class="tab-content hidden" id="tab-pemegang">
+  <div class="table-wrap" id="pemegangWrap"><p>Memuat data pemegang saham...</p></div>
+</section>
+
+<section class="tab-content hidden" id="tab-jenis">
+  <div class="table-wrap" id="jenisWrap"><p>Memuat data jenis saham...</p></div>
+</section>
+
+<section class="tab-content hidden" id="tab-ihsg">
+  <div class="ihsg"><h2>Valuasi Agregat (Proxy IHSG)</h2>
+    <div class="ihsg-grid" id="ihsgGrid"></div>
+    <p class="ihsg-note">Estimasi fair value berbasis aggregate PE 15x. Upside positif = pasar undervalued relatif earning agregat.</p>
+  </div>
+</section>
+
+<section class="tab-content hidden" id="tab-valuasi">
+  <div class="table-wrap" id="valuasiWrap">
+    <h2 style="color:#1f3864;margin:0 0 12px">Perbandingan Metode Valuasi Saham</h2>
+    <div style="margin-bottom:12px">
+      <label>Pilih Emiten: </label>
+      <select id="valStockSelect" class="btn secondary" style="min-width:200px"></select>
+      <button id="valLoadBtn" class="btn primary">Muat Valuasi</button>
+      <a href="valuation_guide.html" target="_blank" class="btn secondary" style="margin-left:8px">📖 Panduan Metode</a>
+    </div>
+    <div id="valSummary"></div>
+    <p style="font-size:12px;color:#6c757d;margin:8px 0">💡 Klik pada baris metode untuk melihat analisa detail per metode (murah/mahal, layak beli/tidak).</p>
+    <div id="valTable"></div>
+    <details style="margin-top:16px">
+      <summary style="cursor:pointer;font-weight:bold;color:#1f3864">Keterangan Metode Valuasi & Keputusan Investasi</summary>
+      <div style="margin-top:10px;font-size:13px">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:#1f3864;color:white"><th>Metode</th><th>Sinyal BELI</th><th>Sinyal JUAL/AVOID</th></tr></thead>
+          <tbody>
+            <tr><td><b>Graham Number</b></td><td>Harga &lt; Graham</td><td>Harga &gt; Graham</td></tr>
+            <tr><td><b>PE-Based</b></td><td>PE &lt; 15</td><td>PE &gt; 25</td></tr>
+            <tr><td><b>PBV-Based</b></td><td>PBV &lt; 1.0</td><td>PBV &gt; 3.0</td></tr>
+            <tr><td><b>Asset-Based (NAV)</b></td><td>Harga &lt; NAV</td><td>Harga &gt;&gt; NAV</td></tr>
+            <tr><td><b>Liquidation Value</b></td><td>Harga &lt; Liq Value</td><td>Liq Value &lt; 0</td></tr>
+            <tr><td><b>EPV</b></td><td>EPV &gt; Harga</td><td>EPV &lt;&lt; Harga</td></tr>
+            <tr><td><b>DDM (Gordon)</b></td><td>DDM &gt; Harga</td><td>DDM &lt; Harga</td></tr>
+            <tr><td><b>Residual Income</b></td><td>ROE &gt; 10%, RI &gt; Harga</td><td>ROE &lt; 10%</td></tr>
+            <tr><td><b>Graham's Revised</b></td><td>FV &gt; Harga +20%</td><td>FV &lt; Harga</td></tr>
+            <tr><td><b>PEG-Based</b></td><td>PEG &lt; 1.0</td><td>PEG &gt; 2.0</td></tr>
+            <tr><td><b>DCF</b></td><td>DCF &gt; Harga +30%</td><td>DCF &lt; Harga</td></tr>
+            <tr><td><b>Earnings Yield</b></td><td>EY &gt; 6.5% (risk-free)</td><td>EY &lt; 4%</td></tr>
+            <tr><td><b>Magic Formula</b></td><td>Score tertinggi (top 20-30)</td><td>Score rendah</td></tr>
+            <tr><td><b>NCAV</b></td><td>Harga &lt; NCAV</td><td>NCAV &lt; 0</td></tr>
+          </tbody>
+        </table>
+        <p style="margin-top:10px"><b>Strategi Kombinasi:</b> Gunakan consensus (rata-rata/median) dari minimal 5-7 metode. STRONG BUY jika ≥70% metode undervalued + soliditas Solid. BUY jika ≥50% undervalued. HOLD jika campuran. AVOID/SELL jika ≥70% overvalued atau Rawan Gorengan.</p>
+      </div>
+    </details>
+  </div>
+</section>
+
+<div id="detail" class="detail hidden"></div>
+<div id="overlay" class="overlay hidden" onclick="closeDetail()"></div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+<footer>
+  <p><b>Disclaimer:</b> Semua informasi dalam website ini adalah untuk konsumsi pribadi dan edukasi. Sumber data berasal dari data terbuka (stockanalysis.com, Google News). Bukan merupakan rekomendasi jual atau beli saham. Keputusan investasi sepenuhnya tanggung jawab pengguna.</p>
+</footer>
+</body>
+</html>

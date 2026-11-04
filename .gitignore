@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Command Code taste files
+.commandcode/
+
+# Scratchpad (temporary data)
+scratchpad/
+
+# PHP server log
+*.log
+
+# OS files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+
+# Database credentials (if any)
+*.env
+
+# Excel temp
+~$*.xlsx
